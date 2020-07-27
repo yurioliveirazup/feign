@@ -513,8 +513,6 @@ public final class RequestTemplate implements Serializable {
    * @return a list of template variable names
    */
   public List<String> variables() {
-
-
     return new VariablesUtils(queries, uriTemplate, headers, bodyTemplate).findAllVariables();
   }
 
