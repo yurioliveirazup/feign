@@ -287,15 +287,8 @@ public final class RequestTemplate implements Serializable {
    */
   public RequestTemplate decodeSlash(boolean decodeSlash) {
     this.decodeSlash = decodeSlash;
-    this.uriTemplate =
-        UriTemplate.create(this.uriTemplate.toString(), !this.decodeSlash, this.charset);
-    if (!this.queries.isEmpty()) {
-      this.queries.replaceAll((key, queryTemplate) -> QueryTemplate.create(
-          /* replace the current template with new ones honoring the decode value */
-          queryTemplate.getName(), queryTemplate.getValues(), charset, collectionFormat,
-          decodeSlash));
-
-    }
+    this.uriTemplate = UriTemplate.create(this.uriTemplate.toString(), !this.decodeSlash, this.charset);
+    this.queries = new QueryParametersHelper(queries, charset, decodeSlash).replaceQueryTemplate(collectionFormat);
     return this;
   }
 

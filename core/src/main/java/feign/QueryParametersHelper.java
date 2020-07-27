@@ -48,4 +48,15 @@ class QueryParametersHelper {
 
         return queries;
     }
+
+    public Map<String, QueryTemplate> replaceQueryTemplate(CollectionFormat collectionFormat) {
+        if (!this.queries.isEmpty()) {
+            this.queries.replaceAll((key, queryTemplate) -> QueryTemplate.create(
+                    /* replace the current template with new ones honoring the decode value */
+                    queryTemplate.getName(), queryTemplate.getValues(), charset, collectionFormat, decodeSlash));
+
+        }
+
+        return queries;
+    }
 }
