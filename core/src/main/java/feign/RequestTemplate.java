@@ -895,32 +895,7 @@ public final class RequestTemplate implements Serializable {
    * @return the Query String.
    */
   public String queryLine() {
-    StringBuilder queryString = new StringBuilder();
-
-    if (!this.queries.isEmpty()) {
-      Iterator<QueryTemplate> iterator = this.queries.values().iterator();
-      while (iterator.hasNext()) {
-        QueryTemplate queryTemplate = iterator.next();
-        String query = queryTemplate.toString();
-        if (query != null && !query.isEmpty()) {
-          queryString.append(query);
-          if (iterator.hasNext()) {
-            queryString.append("&");
-          }
-        }
-      }
-    }
-    /* remove any trailing ampersands */
-    String result = queryString.toString();
-    if (result.endsWith("&")) {
-      result = result.substring(0, result.length() - 1);
-    }
-
-    if (!result.isEmpty()) {
-      result = "?" + result;
-    }
-
-    return result;
+    return QueryStringUtils.getQueryStrings(queries);
   }
 
   private void extractQueryTemplates(String queryString, boolean append) {
