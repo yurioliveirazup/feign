@@ -504,9 +504,7 @@ public final class RequestTemplate implements Serializable {
    * @return the uri path.
    */
   public String path() {
-    String path = new PathFactory(target, uriTemplate).makePath();
-    return path;
-
+    return new PathFactory(target, uriTemplate).makePath();
   }
 
   /**
