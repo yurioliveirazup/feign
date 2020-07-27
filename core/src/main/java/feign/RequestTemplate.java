@@ -393,24 +393,13 @@ public final class RequestTemplate implements Serializable {
    * @return a RequestTemplate for chaining.
    */
   public RequestTemplate uri(String uri, boolean append) {
-    /* validate and ensure that the url is always a relative one */
-    if (UriUtils.isAbsolute(uri)) {
-      throw new IllegalArgumentException("url values must be not be absolute.");
-    }
 
-    if (uri == null) {
-      uri = "/";
-    } else if ((!uri.isEmpty() && !uri.startsWith("/") && !uri.startsWith("{")
-        && !uri.startsWith("?") && !uri.startsWith(";"))) {
-      /* if the start of the url is a literal, it must begin with a slash. */
-      uri = "/" + uri;
-    }
-
+    String requestUri = new UriRequestHelper().makeUri(uri);
     /*
      * templates may provide query parameters. since we want to manage those explicity, we will need
      * to extract those out, leaving the uriTemplate with only the path to deal with.
      */
-    Matcher queryMatcher = QUERY_STRING_PATTERN.matcher(uri);
+    Matcher queryMatcher = QUERY_STRING_PATTERN.matcher(requestUri);
     if (queryMatcher.find()) {
       String queryString = uri.substring(queryMatcher.start() + 1);
 
@@ -418,20 +407,19 @@ public final class RequestTemplate implements Serializable {
       this.extractQueryTemplates(queryString, append);
 
       /* reduce the uri to the path */
-      uri = uri.substring(0, queryMatcher.start());
+      requestUri = requestUri.substring(0, queryMatcher.start());
     }
 
-    int fragmentIndex = uri.indexOf('#');
+    int fragmentIndex = requestUri.indexOf('#');
     if (fragmentIndex > -1) {
       fragment = uri.substring(fragmentIndex);
-      uri = uri.substring(0, fragmentIndex);
+      requestUri = requestUri.substring(0, fragmentIndex);
     }
-
     /* replace the uri template */
     if (append && this.uriTemplate != null) {
-      this.uriTemplate = UriTemplate.append(this.uriTemplate, uri);
+      this.uriTemplate = UriTemplate.append(this.uriTemplate, requestUri);
     } else {
-      this.uriTemplate = UriTemplate.create(uri, !this.decodeSlash, this.charset);
+      this.uriTemplate = UriTemplate.create(requestUri, !this.decodeSlash, this.charset);
     }
     return this;
   }
