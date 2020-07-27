@@ -513,25 +513,9 @@ public final class RequestTemplate implements Serializable {
    * @return a list of template variable names
    */
   public List<String> variables() {
-    /* combine the variables from the uri, query, header, and body templates */
-    List<String> variables = new ArrayList<>(this.uriTemplate.getVariables());
 
-    /* queries */
-    for (QueryTemplate queryTemplate : this.queries.values()) {
-      variables.addAll(queryTemplate.getVariables());
-    }
 
-    /* headers */
-    for (HeaderTemplate headerTemplate : this.headers.values()) {
-      variables.addAll(headerTemplate.getVariables());
-    }
-
-    /* body */
-    if (this.bodyTemplate != null) {
-      variables.addAll(this.bodyTemplate.getVariables());
-    }
-
-    return variables;
+    return new VariablesUtils(queries, uriTemplate, headers, bodyTemplate).findAllVariables();
   }
 
   /**
