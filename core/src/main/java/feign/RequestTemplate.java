@@ -166,8 +166,6 @@ public final class RequestTemplate implements Serializable {
    */
   public RequestTemplate resolve(Map<String, ?> variables) {
 
-    StringBuilder uri = new StringBuilder();
-
     /* create a new template form this one, but explicitly */
     RequestTemplate resolved = RequestTemplate.from(this);
 
@@ -177,46 +175,8 @@ public final class RequestTemplate implements Serializable {
     }
 
     String expanded = this.uriTemplate.expand(variables);
-    if (expanded != null) {
-      uri.append(expanded);
-    }
-
-    /*
-     * for simplicity, combine the queries into the uri and use the resulting uri to seed the
-     * resolved template.
-     */
-    if (!this.queries.isEmpty()) {
-      /*
-       * since we only want to keep resolved query values, reset any queries on the resolved copy
-       */
-      resolved.queries(Collections.emptyMap());
-      StringBuilder query = new StringBuilder();
-      Iterator<QueryTemplate> queryTemplates = this.queries.values().iterator();
-
-      while (queryTemplates.hasNext()) {
-        QueryTemplate queryTemplate = queryTemplates.next();
-        String queryExpanded = queryTemplate.expand(variables);
-        if (Util.isNotBlank(queryExpanded)) {
-          query.append(queryExpanded);
-          if (queryTemplates.hasNext()) {
-            query.append("&");
-          }
-        }
-      }
-
-      String queryString = query.toString();
-      if (!queryString.isEmpty()) {
-        Matcher queryMatcher = QUERY_STRING_PATTERN.matcher(uri);
-        if (queryMatcher.find()) {
-          /* the uri already has a query, so any additional queries should be appended */
-          uri.append("&");
-        } else {
-          uri.append("?");
-        }
-        uri.append(queryString);
-      }
-    }
-
+    QueryParamsResolver queryParamsResolver = new QueryParamsResolver(QUERY_STRING_PATTERN, queries, variables);
+    StringBuilder uri = queryParamsResolver.resolve(resolved, expanded);
     /* add the uri to result */
     resolved.uri(uri.toString());
 
