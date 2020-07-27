@@ -504,19 +504,8 @@ public final class RequestTemplate implements Serializable {
    * @return the uri path.
    */
   public String path() {
-    /* build the fully qualified url with all query parameters */
-    StringBuilder path = new StringBuilder();
-    if (this.target != null) {
-      path.append(this.target);
-    }
-    if (this.uriTemplate != null) {
-      path.append(this.uriTemplate.toString());
-    }
-    if (path.length() == 0) {
-      /* no path indicates the root uri */
-      path.append("/");
-    }
-    return path.toString();
+    String path = new PathFactory(target, uriTemplate).makePath();
+    return path;
 
   }
 
