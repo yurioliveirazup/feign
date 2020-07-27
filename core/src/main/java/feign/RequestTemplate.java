@@ -872,11 +872,7 @@ public final class RequestTemplate implements Serializable {
    * @return a List of all the variable names.
    */
   public Collection<String> getRequestVariables() {
-    final Collection<String> variables = new LinkedHashSet<>(this.uriTemplate.getVariables());
-    this.queries.values().forEach(queryTemplate -> variables.addAll(queryTemplate.getVariables()));
-    this.headers.values()
-        .forEach(headerTemplate -> variables.addAll(headerTemplate.getVariables()));
-    return variables;
+    return new VariablesUtils(queries, uriTemplate, headers, bodyTemplate).findAllVariables();
   }
 
   /**
@@ -900,13 +896,7 @@ public final class RequestTemplate implements Serializable {
 
   private void extractQueryTemplates(String queryString, boolean append) {
     /* split the query string up into name value pairs */
-    Map<String, List<String>> queryParameters =
-        Arrays.stream(queryString.split("&"))
-            .map(this::splitQueryParameter)
-            .collect(Collectors.groupingBy(
-                SimpleImmutableEntry::getKey,
-                LinkedHashMap::new,
-                Collectors.mapping(Entry::getValue, Collectors.toList())));
+    Map<String, List<String>> queryParameters = QueryStringUtils.extractQueryParameters(queryString);
 
     /* add them to this template */
     if (!append) {
@@ -914,13 +904,6 @@ public final class RequestTemplate implements Serializable {
       this.queries.clear();
     }
     queryParameters.forEach(this::query);
-  }
-
-  private SimpleImmutableEntry<String, String> splitQueryParameter(String pair) {
-    int eq = pair.indexOf("=");
-    final String name = (eq > 0) ? pair.substring(0, eq) : pair;
-    final String value = (eq > 0 && eq < pair.length()) ? pair.substring(eq + 1) : null;
-    return new SimpleImmutableEntry<>(name, value);
   }
 
   @Experimental
