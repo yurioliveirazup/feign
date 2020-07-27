@@ -15,16 +15,16 @@ package feign;
 
 import feign.Request.HttpMethod;
 import feign.template.*;
+
 import java.io.Serializable;
 import java.net.URI;
 import java.nio.charset.Charset;
-import java.util.AbstractMap.SimpleImmutableEntry;
 import java.util.*;
-import java.util.Map.Entry;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
-import static feign.Util.*;
+
+import static feign.Util.CONTENT_LENGTH;
+import static feign.Util.checkNotNull;
 
 /**
  * Request Builder for an HTTP Target.
@@ -38,7 +38,7 @@ public final class RequestTemplate implements Serializable {
 
   private static final Pattern QUERY_STRING_PATTERN = Pattern.compile("(?<!\\{)\\?");
   private final Map<String, QueryTemplate> queries = new LinkedHashMap<>();
-  private final Map<String, HeaderTemplate> headers = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+  private Map<String, HeaderTemplate> headers = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
   private String target;
   private String fragment;
   private boolean resolved = false;
@@ -619,10 +619,9 @@ public final class RequestTemplate implements Serializable {
    * @return a RequestTemplate for chaining.
    */
   private RequestTemplate header(String name, TemplateChunk... chunks) {
-    if (chunks == null) {
-      throw new IllegalArgumentException("chunks are required.");
-    }
-    return appendHeader(name, Arrays.asList(chunks));
+    this.headers = new HeadersHelper(headers).makeHeaderTemplate(name, chunks);
+
+    return this;
   }
 
   /**
@@ -633,14 +632,9 @@ public final class RequestTemplate implements Serializable {
    * @return a RequestTemplate for chaining.
    */
   public RequestTemplate header(String name, Iterable<String> values) {
-    if (name == null || name.isEmpty()) {
-      throw new IllegalArgumentException("name is required.");
-    }
-    if (values == null) {
-      values = Collections.emptyList();
-    }
+    this.headers = new HeadersHelper(headers).makeHeaderTemplate(name, values);
 
-    return appendHeader(name, values);
+    return this;
   }
 
   /**
@@ -657,52 +651,6 @@ public final class RequestTemplate implements Serializable {
     return this;
   }
 
-  /**
-   * Create a Header Template.
-   *
-   * @param name of the header
-   * @param values for the header, may be expressions.
-   * @return a RequestTemplate for chaining.
-   */
-  private RequestTemplate appendHeader(String name, Iterable<String> values) {
-    if (!values.iterator().hasNext()) {
-      /* empty value, clear the existing values */
-      this.headers.remove(name);
-      return this;
-    }
-    if (name.equals("Content-Type")) {
-      // a client can only produce content of one single type, so always override Content-Type and
-      // only add a single type
-      this.headers.remove(name);
-      this.headers.put(name,
-          HeaderTemplate.create(name, Collections.singletonList(values.iterator().next())));
-      return this;
-    }
-    this.headers.compute(name, (headerName, headerTemplate) -> {
-      if (headerTemplate == null) {
-        return HeaderTemplate.create(headerName, values);
-      } else {
-        return HeaderTemplate.append(headerTemplate, values);
-      }
-    });
-    return this;
-  }
-
-  private RequestTemplate appendHeader(String name, List<TemplateChunk> chunks) {
-    if (chunks.isEmpty()) {
-      this.headers.remove(name);
-      return this;
-    }
-
-    this.headers.compute(name, (headerName, headerTemplate) -> {
-      if (headerTemplate == null) {
-        return HeaderTemplate.from(name, chunks);
-      } else {
-        return HeaderTemplate.appendFrom(headerTemplate, chunks);
-      }
-    });
-    return this;
-  }
 
   /**
    * Headers for this Request.
@@ -725,15 +673,7 @@ public final class RequestTemplate implements Serializable {
    * @return the currently applied headers.
    */
   public Map<String, Collection<String>> headers() {
-    Map<String, Collection<String>> headerMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
-    this.headers.forEach((key, headerTemplate) -> {
-      List<String> values = new ArrayList<>(headerTemplate.getValues());
-
-      /* add the expanded collection, but only if it has values */
-      if (!values.isEmpty()) {
-        headerMap.put(key, Collections.unmodifiableList(values));
-      }
-    });
+    Map<String, Collection<String>> headerMap = new HeadersHelper(headers).getHeadersMap();
     return Collections.unmodifiableMap(headerMap);
   }
 
