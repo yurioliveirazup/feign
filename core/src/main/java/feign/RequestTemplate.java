@@ -37,7 +37,7 @@ import static feign.Util.checkNotNull;
 public final class RequestTemplate implements Serializable {
 
   private static final Pattern QUERY_STRING_PATTERN = Pattern.compile("(?<!\\{)\\?");
-  private final Map<String, QueryTemplate> queries = new LinkedHashMap<>();
+  private Map<String, QueryTemplate> queries = new LinkedHashMap<>();
   private Map<String, HeaderTemplate> headers = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
   private String target;
   private String fragment;
@@ -553,20 +553,7 @@ public final class RequestTemplate implements Serializable {
   private RequestTemplate appendQuery(String name,
                                       Iterable<String> values,
                                       CollectionFormat collectionFormat) {
-    if (!values.iterator().hasNext()) {
-      /* empty value, clear the existing values */
-      this.queries.remove(name);
-      return this;
-    }
-
-    /* create a new query template out of the information here */
-    this.queries.compute(name, (key, queryTemplate) -> {
-      if (queryTemplate == null) {
-        return QueryTemplate.create(name, values, this.charset, collectionFormat, this.decodeSlash);
-      } else {
-        return QueryTemplate.append(queryTemplate, values, collectionFormat, this.decodeSlash);
-      }
-    });
+    this.queries = new QueryParametersHelper(queries, charset, decodeSlash).makeQueryParametesToRequest(name, values, collectionFormat);
     return this;
   }
 
@@ -586,20 +573,13 @@ public final class RequestTemplate implements Serializable {
     return this;
   }
 
-
   /**
    * Return an immutable Map of all Query Parameters and their values.
    *
    * @return registered Query Parameters.
    */
   public Map<String, Collection<String>> queries() {
-    Map<String, Collection<String>> queryMap = new LinkedHashMap<>();
-    this.queries.forEach((key, queryTemplate) -> {
-      List<String> values = new ArrayList<>(queryTemplate.getValues());
-
-      /* add the expanded collection, but lock it */
-      queryMap.put(key, Collections.unmodifiableList(values));
-    });
+    Map<String, Collection<String>> queryMap = new QueryParametersHelper(queries, charset, decodeSlash).getQueryMap();
 
     return Collections.unmodifiableMap(queryMap);
   }
