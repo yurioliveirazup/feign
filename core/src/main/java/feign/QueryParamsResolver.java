@@ -21,7 +21,7 @@ class QueryParamsResolver {
         this.variables = variables;
     }
 
-    public StringBuilder resolve(RequestTemplate resolved, String expanded) {
+    public StringBuilder resolve(RequestHeaderTemplate requestHeaderTemplate, String expanded) {
         StringBuilder uri = new StringBuilder();
 
         if (expanded != null) {
@@ -36,7 +36,7 @@ class QueryParamsResolver {
             /*
              * since we only want to keep resolved query values, reset any queries on the resolved copy
              */
-            resolved.queries(Collections.emptyMap());
+            requestHeaderTemplate.updateQueries(Collections.emptyMap());
             StringBuilder query = new StringBuilder();
             Iterator<QueryTemplate> queryTemplates = this.queries.values().iterator();
 

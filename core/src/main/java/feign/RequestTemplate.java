@@ -14,16 +14,13 @@
 package feign;
 
 import feign.Request.HttpMethod;
-import feign.template.*;
+import feign.template.BodyTemplate;
+import feign.template.UriTemplate;
 
 import java.io.Serializable;
-import java.net.URI;
 import java.nio.charset.Charset;
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
-import static feign.Util.CONTENT_LENGTH;
 import static feign.Util.checkNotNull;
 
 /**
@@ -36,18 +33,11 @@ import static feign.Util.checkNotNull;
 @SuppressWarnings("UnusedReturnValue")
 public final class RequestTemplate implements Serializable {
 
-  private static final Pattern QUERY_STRING_PATTERN = Pattern.compile("(?<!\\{)\\?");
-  private Map<String, QueryTemplate> queries = new LinkedHashMap<>();
-  private Map<String, HeaderTemplate> headers = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
-  private String target;
-  private String fragment;
+  private RequestHeaderTemplate requestHeaderTemplate;
+  private RequestBodyTemplate requestBodyTemplate;
   private boolean resolved = false;
   private UriTemplate uriTemplate;
-  private BodyTemplate bodyTemplate;
-  private HttpMethod method;
   private transient Charset charset = Util.UTF_8;
-  private Request.Body body = Request.Body.empty();
-  private boolean decodeSlash = true;
   private CollectionFormat collectionFormat = CollectionFormat.EXPLODED;
   private MethodMetadata methodMetadata;
   private Target<?> feignTarget;
@@ -57,6 +47,8 @@ public final class RequestTemplate implements Serializable {
    */
   public RequestTemplate() {
     super();
+    this.requestHeaderTemplate = new RequestHeaderTemplate();
+    this.requestBodyTemplate = new RequestBodyTemplate();
   }
 
   /**
@@ -85,14 +77,10 @@ public final class RequestTemplate implements Serializable {
       CollectionFormat collectionFormat,
       MethodMetadata methodMetadata,
       Target<?> feignTarget) {
-    this.target = target;
-    this.fragment = fragment;
+    this.requestHeaderTemplate = new RequestHeaderTemplate(target, fragment, method, decodeSlash);
+    this.requestBodyTemplate = new RequestBodyTemplate(bodyTemplate, body);
     this.uriTemplate = uriTemplate;
-    this.bodyTemplate = bodyTemplate;
-    this.method = method;
     this.charset = charset;
-    this.body = body;
-    this.decodeSlash = decodeSlash;
     this.collectionFormat =
         (collectionFormat != null) ? collectionFormat : CollectionFormat.EXPLODED;
     this.methodMetadata = methodMetadata;
@@ -108,25 +96,21 @@ public final class RequestTemplate implements Serializable {
   public static RequestTemplate from(RequestTemplate requestTemplate) {
     RequestTemplate template =
         new RequestTemplate(
-            requestTemplate.target,
-            requestTemplate.fragment,
+            requestTemplate.requestHeaderTemplate.getTarget(),
+            requestTemplate.requestHeaderTemplate.getFragment(),
             requestTemplate.uriTemplate,
-            requestTemplate.bodyTemplate,
-            requestTemplate.method,
+            requestTemplate.requestBodyTemplate.getBodyTemplate(),
+            requestTemplate.requestHeaderTemplate.getMethod(),
             requestTemplate.charset,
-            requestTemplate.body,
-            requestTemplate.decodeSlash,
+            requestTemplate.requestBodyTemplate.getBody(),
+            requestTemplate.decodeSlash(),
             requestTemplate.collectionFormat,
             requestTemplate.methodMetadata,
             requestTemplate.feignTarget);
 
-    if (!requestTemplate.queries().isEmpty()) {
-      template.queries.putAll(requestTemplate.queries);
-    }
+    template.requestHeaderTemplate.updateQueries(requestTemplate.requestHeaderTemplate.getQueries());
+    template.requestHeaderTemplate.updateHeaders(requestTemplate.requestHeaderTemplate.getHeaders());
 
-    if (!requestTemplate.headers().isEmpty()) {
-      template.headers.putAll(requestTemplate.headers);
-    }
     return template;
   }
 
@@ -139,21 +123,14 @@ public final class RequestTemplate implements Serializable {
   @Deprecated
   public RequestTemplate(RequestTemplate toCopy) {
     checkNotNull(toCopy, "toCopy");
-    this.target = toCopy.target;
-    this.fragment = toCopy.fragment;
-    this.method = toCopy.method;
-    this.queries.putAll(toCopy.queries);
-    this.headers.putAll(toCopy.headers);
+    this.requestHeaderTemplate = toCopy.requestHeaderTemplate;
+    this.requestBodyTemplate = toCopy.requestBodyTemplate;
     this.charset = toCopy.charset;
-    this.body = toCopy.body;
-    this.decodeSlash = toCopy.decodeSlash;
     this.collectionFormat =
         (toCopy.collectionFormat != null) ? toCopy.collectionFormat : CollectionFormat.EXPLODED;
     this.uriTemplate = toCopy.uriTemplate;
-    this.bodyTemplate = toCopy.bodyTemplate;
     this.resolved = false;
     this.methodMetadata = toCopy.methodMetadata;
-    this.target = toCopy.target;
     this.feignTarget = toCopy.feignTarget;
   }
 
@@ -169,41 +146,17 @@ public final class RequestTemplate implements Serializable {
     /* create a new template form this one, but explicitly */
     RequestTemplate resolved = RequestTemplate.from(this);
 
-    if (this.uriTemplate == null) {
-      /* create a new uri template using the default root */
-      this.uriTemplate = UriTemplate.create("", !this.decodeSlash, this.charset);
-    }
+    this.uriTemplate = new UriHelper(uriTemplate).generateTemplate(requestHeaderTemplate, charset);
 
     String expanded = this.uriTemplate.expand(variables);
-    QueryParamsResolver queryParamsResolver = new QueryParamsResolver(QUERY_STRING_PATTERN, queries, variables);
-    StringBuilder uri = queryParamsResolver.resolve(resolved, expanded);
+    String uri = requestHeaderTemplate.resolveUri(variables, expanded);
     /* add the uri to result */
-    resolved.uri(uri.toString());
+    resolved.uri(uri);
 
-    /* headers */
-    if (!this.headers.isEmpty()) {
-      /*
-       * same as the query string, we only want to keep resolved values, so clear the header map on
-       * the resolved instance
-       */
-      resolved.headers(Collections.emptyMap());
-      for (HeaderTemplate headerTemplate : this.headers.values()) {
-        /* resolve the header */
-        String header = headerTemplate.expand(variables);
-        if (!header.isEmpty()) {
-          /* split off the header values and add it to the resolved template */
-          String headerValues = header.substring(header.indexOf(" ") + 1);
-          if (!headerValues.isEmpty()) {
-            /* append the header as a new literal as the value has already been expanded. */
-            resolved.header(headerTemplate.getName(), Literal.create(headerValues));
-          }
-        }
-      }
-    }
+    resolved.requestHeaderTemplate.resolveHeaders(variables);
 
-    if (this.bodyTemplate != null) {
-      resolved.body(this.bodyTemplate.expand(variables));
-    }
+    String resolvedBody = requestBodyTemplate.resolve(variables);
+    resolved.body(resolvedBody);
 
     /* mark the new template resolved */
     resolved.resolved = true;
@@ -237,7 +190,7 @@ public final class RequestTemplate implements Serializable {
     if (!this.resolved) {
       throw new IllegalStateException("template has not been resolved.");
     }
-    return Request.create(this.method, this.url(), this.headers(), this.body, this);
+    return Request.create(requestHeaderTemplate.getMethod(), this.url(), this.headers(), requestBodyTemplate.getBody(), this);
   }
 
   /**
@@ -251,7 +204,8 @@ public final class RequestTemplate implements Serializable {
   public RequestTemplate method(String method) {
     checkNotNull(method, "method");
     try {
-      this.method = HttpMethod.valueOf(method);
+      HttpMethod httpMethod = HttpMethod.valueOf(method);
+      requestHeaderTemplate.setMethod(httpMethod);
     } catch (IllegalArgumentException iae) {
       throw new IllegalArgumentException("Invalid HTTP Method: " + method);
     }
@@ -266,7 +220,7 @@ public final class RequestTemplate implements Serializable {
    */
   public RequestTemplate method(HttpMethod method) {
     checkNotNull(method, "method");
-    this.method = method;
+    requestHeaderTemplate.setMethod(method);
     return this;
   }
 
@@ -276,7 +230,7 @@ public final class RequestTemplate implements Serializable {
    * @return Http Method.
    */
   public String method() {
-    return (method != null) ? method.name() : null;
+    return requestHeaderTemplate.method();
   }
 
   /**
@@ -286,9 +240,7 @@ public final class RequestTemplate implements Serializable {
    * @return a RequestTemplate for chaining.
    */
   public RequestTemplate decodeSlash(boolean decodeSlash) {
-    this.decodeSlash = decodeSlash;
-    this.uriTemplate = UriTemplate.create(this.uriTemplate.toString(), !this.decodeSlash, this.charset);
-    this.queries = new QueryParametersHelper(queries, charset, decodeSlash).replaceQueryTemplate(collectionFormat);
+    this.uriTemplate = requestHeaderTemplate.generateUriTemplate(decodeSlash, charset, collectionFormat, uriTemplate);
     return this;
   }
 
@@ -298,7 +250,7 @@ public final class RequestTemplate implements Serializable {
    * @return true if slash literals are not encoded, false otherwise.
    */
   public boolean decodeSlash() {
-    return decodeSlash;
+    return requestHeaderTemplate.decodeSlash();
   }
 
   /**
@@ -386,34 +338,8 @@ public final class RequestTemplate implements Serializable {
    * @return a RequestTemplate for chaining.
    */
   public RequestTemplate uri(String uri, boolean append) {
+    this.uriTemplate = new UriHelper(uriTemplate).resolveUri(uri, append, requestHeaderTemplate, charset, collectionFormat);
 
-    String requestUri = new UriRequestHelper().makeUri(uri);
-    /*
-     * templates may provide query parameters. since we want to manage those explicity, we will need
-     * to extract those out, leaving the uriTemplate with only the path to deal with.
-     */
-    Matcher queryMatcher = QUERY_STRING_PATTERN.matcher(requestUri);
-    if (queryMatcher.find()) {
-      String queryString = uri.substring(queryMatcher.start() + 1);
-
-      /* parse the query string */
-      this.extractQueryTemplates(queryString, append);
-
-      /* reduce the uri to the path */
-      requestUri = requestUri.substring(0, queryMatcher.start());
-    }
-
-    int fragmentIndex = requestUri.indexOf('#');
-    if (fragmentIndex > -1) {
-      fragment = uri.substring(fragmentIndex);
-      requestUri = requestUri.substring(0, fragmentIndex);
-    }
-    /* replace the uri template */
-    if (append && this.uriTemplate != null) {
-      this.uriTemplate = UriTemplate.append(this.uriTemplate, requestUri);
-    } else {
-      this.uriTemplate = UriTemplate.create(requestUri, !this.decodeSlash, this.charset);
-    }
     return this;
   }
 
@@ -424,38 +350,7 @@ public final class RequestTemplate implements Serializable {
    * @return a RequestTemplate for chaining.
    */
   public RequestTemplate target(String target) {
-    /* target can be empty */
-    if (Util.isBlank(target)) {
-      return this;
-    }
-
-    /* verify that the target contains the scheme, host and port */
-    if (!UriUtils.isAbsolute(target)) {
-      throw new IllegalArgumentException("target values must be absolute.");
-    }
-    if (target.endsWith("/")) {
-      target = target.substring(0, target.length() - 1);
-    }
-    try {
-      /* parse the target */
-      URI targetUri = URI.create(target);
-
-      if (Util.isNotBlank(targetUri.getRawQuery())) {
-        /*
-         * target has a query string, we need to make sure that they are recorded as queries
-         */
-        this.extractQueryTemplates(targetUri.getRawQuery(), true);
-      }
-
-      /* strip the query string */
-      this.target = targetUri.getScheme() + "://" + targetUri.getAuthority() + targetUri.getPath();
-      if (targetUri.getFragment() != null) {
-        this.fragment = "#" + targetUri.getFragment();
-      }
-    } catch (IllegalArgumentException iae) {
-      /* the uri provided is not a valid one, we can't continue */
-      throw new IllegalArgumentException("Target is not a valid URI.", iae);
-    }
+    requestHeaderTemplate.target(target, charset, collectionFormat);
     return this;
   }
 
@@ -466,17 +361,7 @@ public final class RequestTemplate implements Serializable {
    * @return the url
    */
   public String url() {
-
-    /* build the fully qualified url with all query parameters */
-    StringBuilder url = new StringBuilder(this.path());
-    if (!this.queries.isEmpty()) {
-      url.append(this.queryLine());
-    }
-    if (fragment != null) {
-      url.append(fragment);
-    }
-
-    return url.toString();
+    return requestHeaderTemplate.requestUrl(uriTemplate);
   }
 
   /**
@@ -485,7 +370,7 @@ public final class RequestTemplate implements Serializable {
    * @return the uri path.
    */
   public String path() {
-    return new PathFactory(target, uriTemplate).makePath();
+    return requestHeaderTemplate.path(uriTemplate);
   }
 
   /**
@@ -494,7 +379,7 @@ public final class RequestTemplate implements Serializable {
    * @return a list of template variable names
    */
   public List<String> variables() {
-    return new VariablesUtils(queries, uriTemplate, headers, bodyTemplate).findAllVariables();
+    return requestHeaderTemplate.findVariablesIn(uriTemplate, requestBodyTemplate.getBodyTemplate());
   }
 
   /**
@@ -517,7 +402,8 @@ public final class RequestTemplate implements Serializable {
    * @return a RequestTemplate for chaining.
    */
   public RequestTemplate query(String name, Iterable<String> values) {
-    return appendQuery(name, values, this.collectionFormat);
+    requestHeaderTemplate.addQueryParametersToRequest(charset, name, values, collectionFormat);
+    return this;
   }
 
   /**
@@ -532,23 +418,10 @@ public final class RequestTemplate implements Serializable {
   public RequestTemplate query(String name,
                                Iterable<String> values,
                                CollectionFormat collectionFormat) {
-    return appendQuery(name, values, collectionFormat);
-  }
-
-  /**
-   * Appends the query name and values.
-   *
-   * @param name of the parameter.
-   * @param values for the parameter, may be expressions.
-   * @param collectionFormat to use when resolving collection based query variables.
-   * @return a RequestTemplate for chaining.
-   */
-  private RequestTemplate appendQuery(String name,
-                                      Iterable<String> values,
-                                      CollectionFormat collectionFormat) {
-    this.queries = new QueryParametersHelper(queries, charset, decodeSlash).makeQueryParametesToRequest(name, values, collectionFormat);
+    requestHeaderTemplate.addQueryParametersToRequest(charset, name, values, collectionFormat);
     return this;
   }
+
 
   /**
    * Sets the Query Parameters.
@@ -558,11 +431,7 @@ public final class RequestTemplate implements Serializable {
    */
   @SuppressWarnings("unused")
   public RequestTemplate queries(Map<String, Collection<String>> queries) {
-    if (queries == null || queries.isEmpty()) {
-      this.queries.clear();
-    } else {
-      queries.forEach(this::query);
-    }
+    requestHeaderTemplate.updateQueryString(charset, queries, collectionFormat);
     return this;
   }
 
@@ -572,9 +441,7 @@ public final class RequestTemplate implements Serializable {
    * @return registered Query Parameters.
    */
   public Map<String, Collection<String>> queries() {
-    Map<String, Collection<String>> queryMap = new QueryParametersHelper(queries, charset, decodeSlash).getQueryMap();
-
-    return Collections.unmodifiableMap(queryMap);
+    return requestHeaderTemplate.queries(charset);
   }
 
   /**
@@ -585,19 +452,6 @@ public final class RequestTemplate implements Serializable {
   }
 
   /**
-   * Add a header using the supplied Chunks.
-   *
-   * @param name of the header.
-   * @param chunks to add.
-   * @return a RequestTemplate for chaining.
-   */
-  private RequestTemplate header(String name, TemplateChunk... chunks) {
-    this.headers = new HeadersHelper(headers).makeHeaderTemplate(name, chunks);
-
-    return this;
-  }
-
-  /**
    * Specify a Header, with the specified values. Values can be literals or template expressions.
    *
    * @param name of the header.
@@ -605,8 +459,7 @@ public final class RequestTemplate implements Serializable {
    * @return a RequestTemplate for chaining.
    */
   public RequestTemplate header(String name, Iterable<String> values) {
-    this.headers = new HeadersHelper(headers).makeHeaderTemplate(name, values);
-
+    this.requestHeaderTemplate.updateHeader(name, values);
     return this;
   }
 
@@ -617,10 +470,7 @@ public final class RequestTemplate implements Serializable {
    * @return a RequestTemplate for chaining.
    */
   public RequestTemplate removeHeader(String name) {
-    if (name == null || name.isEmpty()) {
-      throw new IllegalArgumentException("name is required.");
-    }
-    this.headers.remove(name);
+    requestHeaderTemplate.removeHeader(name);
     return this;
   }
 
@@ -632,11 +482,7 @@ public final class RequestTemplate implements Serializable {
    * @return a RequestTemplate for chaining.
    */
   public RequestTemplate headers(Map<String, Collection<String>> headers) {
-    if (headers != null && !headers.isEmpty()) {
-      headers.forEach(this::header);
-    } else {
-      this.headers.clear();
-    }
+    requestHeaderTemplate.updateHeadersForRequest(headers);
     return this;
   }
 
@@ -646,8 +492,7 @@ public final class RequestTemplate implements Serializable {
    * @return the currently applied headers.
    */
   public Map<String, Collection<String>> headers() {
-    Map<String, Collection<String>> headerMap = new HeadersHelper(headers).getHeadersMap();
-    return Collections.unmodifiableMap(headerMap);
+    return requestHeaderTemplate.headers();
   }
 
   /**
@@ -682,15 +527,8 @@ public final class RequestTemplate implements Serializable {
    */
   @Deprecated
   public RequestTemplate body(Request.Body body) {
-    this.body = body;
-
-    /* body template must be cleared to prevent double processing */
-    this.bodyTemplate = null;
-
-    header(CONTENT_LENGTH, Collections.emptyList());
-    if (body.length() > 0) {
-      header(CONTENT_LENGTH, String.valueOf(body.length()));
-    }
+    requestBodyTemplate.updateBody(body);
+    requestHeaderTemplate.setContentLengthTo(body);
 
     return this;
   }
@@ -701,11 +539,7 @@ public final class RequestTemplate implements Serializable {
    * @return the currently applied Charset.
    */
   public Charset requestCharset() {
-    if (this.body != null) {
-      return this.body.getEncoding()
-          .orElse(this.charset);
-    }
-    return this.charset;
+    return requestBodyTemplate.requestCharset(charset);
   }
 
   /**
@@ -714,7 +548,7 @@ public final class RequestTemplate implements Serializable {
    * @return the request body.
    */
   public byte[] body() {
-    return body.asBytes();
+    return requestBodyTemplate.getBody().asBytes();
   }
 
   /**
@@ -725,7 +559,7 @@ public final class RequestTemplate implements Serializable {
    */
   @Deprecated
   public Request.Body requestBody() {
-    return this.body;
+    return requestBodyTemplate.getBody();
   }
 
 
@@ -736,7 +570,7 @@ public final class RequestTemplate implements Serializable {
    * @return a RequestTemplate for chaining.
    */
   public RequestTemplate bodyTemplate(String bodyTemplate) {
-    this.bodyTemplate = BodyTemplate.create(bodyTemplate, this.charset);
+    requestBodyTemplate.specifyBodyTemplate(bodyTemplate, charset);
     return this;
   }
 
@@ -747,7 +581,7 @@ public final class RequestTemplate implements Serializable {
    * @return a RequestTemplate for chaining.
    */
   public RequestTemplate bodyTemplate(String bodyTemplate, Charset charset) {
-    this.bodyTemplate = BodyTemplate.create(bodyTemplate, charset);
+    requestBodyTemplate.specifyBodyTemplate(bodyTemplate, charset);
     this.charset = charset;
     return this;
   }
@@ -758,10 +592,7 @@ public final class RequestTemplate implements Serializable {
    * @return the unresolved body template.
    */
   public String bodyTemplate() {
-    if (this.bodyTemplate != null) {
-      return this.bodyTemplate.toString();
-    }
-    return null;
+    return requestBodyTemplate.unresolvedBodyTemplate();
   }
 
   @Override
@@ -785,7 +616,12 @@ public final class RequestTemplate implements Serializable {
    * @return a List of all the variable names.
    */
   public Collection<String> getRequestVariables() {
-    return new VariablesUtils(queries, uriTemplate, headers, bodyTemplate).findAllVariables();
+    VariablesUtils util = new VariablesUtils(requestHeaderTemplate.getQueries(),
+                                             uriTemplate,
+                                             requestHeaderTemplate.getHeaders(),
+                                             requestBodyTemplate.getBodyTemplate());
+
+    return util.findAllVariables();
   }
 
   /**
@@ -804,20 +640,9 @@ public final class RequestTemplate implements Serializable {
    * @return the Query String.
    */
   public String queryLine() {
-    return QueryStringUtils.getQueryStrings(queries);
+    return requestHeaderTemplate.queryString();
   }
 
-  private void extractQueryTemplates(String queryString, boolean append) {
-    /* split the query string up into name value pairs */
-    Map<String, List<String>> queryParameters = QueryStringUtils.extractQueryParameters(queryString);
-
-    /* add them to this template */
-    if (!append) {
-      /* clear the queries and use the new ones */
-      this.queries.clear();
-    }
-    queryParameters.forEach(this::query);
-  }
 
   @Experimental
   public RequestTemplate methodMetadata(MethodMetadata methodMetadata) {

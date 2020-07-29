@@ -9,7 +9,6 @@ class HeadersHelper {
     private Map<String, HeaderTemplate> headers;
 
     public HeadersHelper(Map<String, HeaderTemplate> headers) {
-
         this.headers = headers;
     }
 
