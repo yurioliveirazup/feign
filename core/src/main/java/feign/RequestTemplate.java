@@ -81,8 +81,7 @@ public final class RequestTemplate implements Serializable {
     this.requestBodyTemplate = new RequestBodyTemplate(bodyTemplate, body);
     this.uriTemplate = uriTemplate;
     this.charset = charset;
-    this.collectionFormat =
-        (collectionFormat != null) ? collectionFormat : CollectionFormat.EXPLODED;
+    this.collectionFormat = (collectionFormat != null) ? collectionFormat : CollectionFormat.EXPLODED;
     this.methodMetadata = methodMetadata;
     this.feignTarget = feignTarget;
   }
@@ -126,8 +125,7 @@ public final class RequestTemplate implements Serializable {
     this.requestHeaderTemplate = toCopy.requestHeaderTemplate;
     this.requestBodyTemplate = toCopy.requestBodyTemplate;
     this.charset = toCopy.charset;
-    this.collectionFormat =
-        (toCopy.collectionFormat != null) ? toCopy.collectionFormat : CollectionFormat.EXPLODED;
+    this.collectionFormat = (toCopy.collectionFormat != null) ? toCopy.collectionFormat : CollectionFormat.EXPLODED;
     this.uriTemplate = toCopy.uriTemplate;
     this.resolved = false;
     this.methodMetadata = toCopy.methodMetadata;
@@ -203,12 +201,8 @@ public final class RequestTemplate implements Serializable {
   @Deprecated
   public RequestTemplate method(String method) {
     checkNotNull(method, "method");
-    try {
-      HttpMethod httpMethod = HttpMethod.valueOf(method);
-      requestHeaderTemplate.setMethod(httpMethod);
-    } catch (IllegalArgumentException iae) {
-      throw new IllegalArgumentException("Invalid HTTP Method: " + method);
-    }
+
+    requestHeaderTemplate.setMethod(method);
     return this;
   }
 

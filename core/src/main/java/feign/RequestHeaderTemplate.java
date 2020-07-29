@@ -59,6 +59,14 @@ class RequestHeaderTemplate {
         return headers;
     }
 
+    public void setMethod(String method) {
+        try {
+            this.method = Request.HttpMethod.valueOf(method);
+        } catch (IllegalArgumentException iae) {
+            throw new IllegalArgumentException("Invalid HTTP Method: " + method);
+        }
+    }
+
     public void setMethod(Request.HttpMethod method) {
         this.method = method;
     }
